@@ -347,9 +347,9 @@ performed.
 
 ### Final local checks
 
-- `node --test tests/security-engine.test.ts tests/evaluate-api.test.ts tests/purchase-review-api.test.ts tests/purchase-workflow.e2e.test.ts`:
-  **99 passed, 0 failed** (29 engine, 48 evaluation API, 15 review API,
-  7 mocked workflow tests).
+- `node --conditions=react-server --test tests/*.test.ts`:
+  **125 passed, 0 failed** (29 engine, 59 evaluation API, 15 review API,
+  7 mocked workflow, 10 mocked PayPal API, 5 PayPal token tests).
 - `npx.cmd tsc --noEmit`: **passed**.
 - `npm.cmd run lint`: **passed**.
 - `npm.cmd run build`: **passed**.

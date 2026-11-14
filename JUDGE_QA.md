@@ -107,15 +107,17 @@ record. The dashboard is not a full approval-event log browser.
 
 ### 19. Does approval charge a card or execute a payment?
 
-No. There is no payment processor or payment-execution path in the project.
-Approval is only a recorded human decision about the request.
+No. Approval only records the human decision; it does not initiate a payment.
+A separate PayPal Sandbox demonstration can create and capture a fixed USD
+1.00 Sandbox order, but it does not use or change any purchase request.
 
 ## Technical architecture
 
 ### 20. What is the technology stack?
 
-Next.js, React, TypeScript, Tailwind CSS, and Supabase Auth/database. The
-application uses Node's built-in test runner for automated tests.
+Next.js, React, TypeScript, Tailwind CSS, Supabase Auth/database, and PayPal's
+Sandbox APIs for a standalone demonstration. The application uses Node's
+built-in test runner for automated tests.
 
 ### 21. What happens when a purchase is evaluated?
 
@@ -146,16 +148,17 @@ proof of deployed configuration.
 
 ### 25. How do you test the workflow?
 
-The recorded suite has 99 tests: engine tests and mock-backed evaluation,
-review, and workflow tests. They exercise application logic but do not execute
-against a live database.
+The current suite has 125 tests: 110 purchase engine/API/workflow tests, 10
+mocked PayPal API tests, and 5 token tests. They exercise application logic but
+do not execute against a live database or PayPal Sandbox.
 
 ## Cybersecurity and limitations
 
 ### 26. Is the database security fully verified?
 
 No. Effective deployed Supabase grants, RLS, migration state, and live behavior
-have not been independently validated in staging.
+have not been independently validated in staging. A staging project has been
+reported, but it was not inspected for this implementation.
 
 ### 27. Is reviewer identity fully protected by the database?
 
@@ -166,15 +169,16 @@ Another trusted service-role caller could supply a different ID.
 
 ### 28. Why have you not fixed the database identity limitation?
 
-There is no separate staging Supabase project available. Applying permission
-or function changes directly to a project that may contain real data would be
-unsafe. Database hardening remains blocked until it can be designed and tested
-in staging.
+Database changes are currently prohibited. No permission or function changes
+were made; the known limitation remains until database changes are separately
+authorized and safely tested.
 
 ### 29. Are secrets sent to the browser?
 
 The source separates the server-only service-role helper from the browser
-session client, which uses the publishable key. We have not independently
+session client, which uses the publishable key. PayPal secrets and the
+short-lived signing key are server-only. The PayPal client ID is public by
+design and is required by the hosted checkout SDK. We have not independently
 verified a deployed bundle or hosting configuration during this demo.
 
 ### 30. What happens if Supabase is unavailable?
@@ -187,7 +191,9 @@ state is visible.
 
 The rules are simplistic and not validated against real outcomes. Merchant
 matching is not real verification. Live database security is unverified, and
-the current RPC does not independently bind the actor ID.
+the current RPC does not independently bind the actor ID. The PayPal demo is
+not linked to purchases and has no persistent payment history or application-
+side replay log.
 
 ### 32. What would you improve next?
 
@@ -221,3 +227,33 @@ an unknown or production database.
 
 The automated tests use isolated mock data. A demo should use synthetic
 records in a dedicated non-production project, never real customer data.
+
+### 37. What does the PayPal Sandbox demonstration do?
+
+It creates a fixed USD 1.00 Sandbox order on the server, lets a Sandbox buyer
+approve it, then retrieves and captures the order on the server. The server
+verifies the amount, currency, and completed capture before reporting success.
+
+### 38. Is the PayPal demo connected to a purchase or approval?
+
+No. It does not read or update purchase requests, change approval decisions, or
+mark any purchase as paid. It is an isolated technical demonstration only.
+
+### 39. How do you protect the PayPal capture operation?
+
+The APIs require an authenticated admin and the configured origin. A
+short-lived HMAC token is bound to the admin, order, purpose, audience, and
+expiry. The server checks the order directly with PayPal and uses stable
+PayPal request IDs for retries. There is no durable app-side one-time token
+history because this demonstration stores nothing.
+
+### 40. Are PayPal orders or capture records stored?
+
+No. The verification token is held only in page memory, and the app stores no
+order or capture record. A page reload may require restarting the demo, and
+the app cannot provide durable payment history or full reconciliation.
+
+### 41. Does the project use Gemini or an AI model?
+
+No. The risk engine remains deterministic and rule-based. A Gemini advisory
+assistant is not implemented in this phase.

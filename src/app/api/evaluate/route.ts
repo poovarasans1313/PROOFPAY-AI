@@ -6,6 +6,23 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 const MAX_BODY_BYTES = 16 * 1024;
 
+function isValidMerchantDomain(value: string): boolean {
+  const domain = value.endsWith(".") ? value.slice(0, -1) : value;
+  const labels = domain.split(".");
+
+  return (
+    domain.length > 0 &&
+    domain.length <= 253 &&
+    labels.length >= 2 &&
+    labels.every(
+      (label) =>
+        label.length > 0 &&
+        label.length <= 63 &&
+        /^[a-z\d](?:[a-z\d-]*[a-z\d])?$/i.test(label)
+    )
+  );
+}
+
 function getCanonicalOrigin(): string | null {
   const configuredOrigin = process.env.APP_ORIGIN;
 
@@ -217,6 +234,20 @@ export async function POST(request: Request) {
       amount: input.amount,
       currency: input.currency.trim().toUpperCase(),
     };
+
+    if (
+      !isValidMerchantDomain(purchase.merchantDomain) ||
+      /[\u0000-\u001f\u007f]/.test(purchase.merchant) ||
+      /[\u0000-\u001f\u007f]/.test(purchase.product)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Enter a valid merchant hostname and text without control characters.",
+        },
+        { status: 400 }
+      );
+    }
 
     if (
       !purchase.merchant ||

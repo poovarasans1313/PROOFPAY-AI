@@ -25,7 +25,7 @@ export default function ResetPasswordPage() {
       );
 
       if (error) {
-        setMessage(error.message);
+        setMessage("Unable to request a password reset. Please try again later.");
         return;
       }
 

@@ -7,7 +7,8 @@ presenting them to a human reviewer. It combines a deterministic rule engine,
 authenticated API routes, a Supabase-backed dashboard, and a pending-only
 approval workflow. The prototype demonstrates how purchase data can be
 structured, flagged, and reviewed; it is not a production payment-security
-service.
+service. A separate, fixed-amount PayPal Sandbox demonstration is isolated from
+that purchase workflow.
 
 ## 2. Problem Statement
 
@@ -26,15 +27,18 @@ real provider, integration, and validated data before it can make meaningful
 claims.
 
 PROOFPAY AI currently uses only static demo rules. It does not integrate with a
-merchant verification provider, payment processor, or machine-learning fraud
-service.
+merchant verification provider or machine-learning fraud service. PayPal is
+used only by a standalone Sandbox demonstration; it is not connected to
+purchase requests or approval decisions.
 
 ## 4. Proposed Solution
 
 Collect a purchase request, validate its fields, calculate a demo risk result,
 and require an authorized human to decide eligible requests. Keep the computed
 result and review information available to the dashboard. Evaluation is
-separate from approval, and approval is separate from payment execution.
+separate from approval, and approval is separate from payment execution. The
+standalone PayPal Sandbox demonstration has a separate fixed amount and does
+not update or pay for a purchase request.
 
 ## 5. Objectives
 
@@ -50,11 +54,13 @@ separate from approval, and approval is separate from payment execution.
 
 **Included:** login/session integration, dashboard reporting, purchase
 evaluation, demo merchant-name/domain matching, approval workspace, approval
-and rejection actions, review metadata, and isolated automated tests.
+and rejection actions, review metadata, an isolated fixed USD 1.00 PayPal
+Sandbox demonstration, and isolated automated tests.
 
 **Not included:** real merchant verification, machine-learning inference,
-payment authorization or execution, production fraud guarantees, live
-third-party risk feeds, or verified production Supabase configuration.
+connecting payment to a purchase request, setting a purchase to paid, real-money
+payments, durable payment history, production fraud guarantees, live third-party
+risk feeds, or verified production Supabase configuration.
 
 ## 7. Technology and System Requirements
 
@@ -64,6 +70,7 @@ third-party risk feeds, or verified production Supabase configuration.
 | Language | TypeScript 5 |
 | Styling | Tailwind CSS 4 |
 | Authentication and data | Supabase |
+| Standalone payment demo | PayPal Orders API and hosted JavaScript SDK (Sandbox only) |
 | Automated tests | Node.js built-in `node:test` runner |
 | Recommended runtime | Node.js 24 |
 
@@ -82,10 +89,22 @@ flowchart LR
     Engine[Rule-based security engine]
     DB[(Supabase database)]
     RPC[Pending-only review operation]
+    DemoUI[Separate PayPal Sandbox demo]
+    CreateOrder[POST /api/paypal-demo/orders]
+    CaptureOrder[POST /api/paypal-demo/orders/orderId/capture]
+    PayPal[PayPal Sandbox APIs]
+    PayPalSDK[PayPal hosted checkout SDK]
 
     Browser --> UI
     UI -->|Submit purchase| Eval
     UI -->|Approve or reject| Review
+    Browser --> DemoUI
+    DemoUI -->|Create fixed USD 1.00 order| CreateOrder
+    DemoUI -->|Buyer approves in Sandbox| PayPalSDK
+    PayPalSDK -->|Approved order ID| DemoUI
+    DemoUI -->|Order ID plus short-lived signed token| CaptureOrder
+    CreateOrder --> PayPal
+    CaptureOrder -->|Fetch, validate, capture, verify| PayPal
     Eval -->|Authenticate, authorize, validate| Auth
     Eval --> Engine
     Engine -->|Decision and risk details| Eval
@@ -98,13 +117,17 @@ flowchart LR
 
 The diagram describes the application flow. The tests use isolated mocks and do
 not verify deployed Supabase grants, row-level security, or production
-configuration. There is no payment provider or payment execution path in the
-demonstrated workflow.
+configuration. The PayPal Sandbox path is separate from this purchase and
+approval workflow. It uses the existing Supabase session only for admin
+authentication, makes no purchase-table queries or writes, and stores no order
+or capture record.
 
 ## 9. Application Modules
 
 - **Dashboard:** summarizes purchase request and risk information from
   Supabase.
+- **Settings:** displays the signed-in admin account and secret-safe
+  environment configuration status without offering unsupported controls.
 - **Approval Workspace:** presents requests awaiting human decisions and
   provides optional review notes.
 - **Evaluation API:** authenticates and validates a request, calls the shared
@@ -115,6 +138,9 @@ demonstrated workflow.
   prevents a previously decided or otherwise ineligible request from being
   reviewed again.
 - **Supabase integration:** supplies user sessions and application data.
+- **PayPal Sandbox demonstration:** creates and captures a fixed USD 1.00
+  Sandbox order through server-side OAuth. It verifies the order and capture,
+  does not reference purchase requests, and does not persist payment data.
 
 ## 10. Main Workflows
 
@@ -141,6 +167,25 @@ demonstrated workflow.
 The word “Approve” is a human review decision for the request. It does **not**
 initiate or execute a payment.
 
+### Standalone PayPal Sandbox demonstration
+
+1. An authenticated admin opens the separate PayPal Demo page.
+2. The browser requests an order without sending an amount or currency. The
+   server creates only a USD 1.00 order using the Sandbox API.
+3. The buyer approves the order in PayPal's Sandbox checkout.
+4. The browser sends the order ID and short-lived signed token to the capture
+   API. The server verifies the token's signature, purpose, audience, expiry,
+   authenticated user, and order binding.
+5. The server retrieves the order from PayPal, verifies approval and the fixed
+   amount/currency, captures it server-side, and checks for a completed capture
+   with the expected amount/currency before reporting success.
+
+This demonstration is not part of purchase evaluation or approval. It does not
+read or change purchase requests and saves no order or capture record. The
+token exists only in page memory; PayPal request IDs and remote order status
+help make retries safe, but the application cannot provide durable replay
+history or complete reconciliation without persistent storage.
+
 ## 11. Security Model
 
 - Protected API routes require an authenticated user and the expected admin
@@ -157,6 +202,15 @@ initiate or execute a payment.
   `SUPABASE_SECRET_KEY` using a `NEXT_PUBLIC_` variable.
 - The evaluation route does not accept a client-provided approval decision as
   an instruction to approve or execute payment.
+- The standalone PayPal routes require the authenticated admin and canonical
+  origin, use a fixed server-side amount/currency, and accept only the exact
+  Sandbox API base URL.
+- PayPal OAuth credentials remain server-side. The PayPal client ID is public
+  by design and is used only to load the checkout SDK. The capture API verifies
+  the order with PayPal before returning a completed result.
+- The PayPal demo has no app-side payment storage, purchase linkage, paid
+  status, or durable one-time token-use tracking. Its signed token expires
+  after a short period and is held only in page memory.
 
 These are source-code and isolated-test observations. Deployed Supabase access
 grants, RLS policies, production secret configuration, and live authorization
@@ -222,6 +276,8 @@ project before deployment.
 |---|---|---|
 | `POST /api/evaluate` | Validate and evaluate a purchase request | Authenticated/admin and origin checks; computes using the shared engine; does not execute payment |
 | `POST /api/purchase-requests/[id]/review` | Approve or reject an eligible request | Authenticated/admin and origin checks; pending-only review operation |
+| `POST /api/paypal-demo/orders` | Create the standalone Sandbox order | Admin/origin checked; fixed USD 1.00; rejects request bodies and client-supplied amounts |
+| `POST /api/paypal-demo/orders/[orderId]/capture` | Verify and capture the Sandbox order | Admin/origin checked; signed user/order-bound token; PayPal-side amount and capture verification |
 
 The exact response fields and status codes are defined by the route handlers;
 clients should use those implementations as the source of truth.
@@ -234,33 +290,42 @@ Required environment variable names:
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY` (server-only)
 - `APP_ORIGIN`
+- `NEXT_PUBLIC_PAYPAL_CLIENT_ID` (public Sandbox application ID)
+- `PAYPAL_CLIENT_SECRET` (server-only Sandbox secret)
+- `PAYPAL_DEMO_SIGNING_SECRET` (server-only random key, at least 32 bytes)
+- `PAYPAL_BASE_URL` (must equal `https://api-m.sandbox.paypal.com`)
 
 Use your own development Supabase project. Keep `.env.local` out of source
 control, do not paste secret values into tickets or screenshots, and do not use
 real customer data for test fixtures. The repository ignores `.env*`, but
 confirm repository tracking status in a Git-enabled environment before
-publishing.
+publishing. Configure PayPal values from a PayPal Developer Sandbox
+application; do not use live credentials. The app does not edit `.env.local`.
 
 ## 16. Testing and Verification
 
 Automated tests run with Node's built-in test runner:
 
 ```bash
-node --test tests/security-engine.test.ts tests/evaluate-api.test.ts tests/purchase-review-api.test.ts tests/purchase-workflow.e2e.test.ts
+node --conditions=react-server --test tests/*.test.ts
 ```
 
-The latest recorded test result is **99 passed, 0 failed**:
+The full current suite passed **125 tests, 0 failed**: 110 purchase engine/API/
+workflow tests, 10 mocked PayPal API tests, and 5 token tests. The PayPal tests
+do not contact PayPal or Supabase and do not prove a real Sandbox checkout.
 
-- 29 security-engine tests
-- 48 evaluation API tests
-- 15 purchase-review API tests
-- 7 mocked workflow tests
+The PayPal tests cover authentication and origin checks, fixed amount and
+Sandbox URL enforcement, token binding/expiry/tampering, order approval,
+amount verification, completed capture validation, and idempotent retry
+behavior.
 
 Additional recorded checks:
 
 - `npx.cmd tsc --noEmit`: passed.
 - `npm.cmd run lint`: passed.
-- `npm.cmd run build`: passed.
+- Production build: passed in an isolated source copy with dummy environment
+  placeholders and no `.env.local` file. No PayPal or Supabase service was
+  contacted.
 - `npm.cmd audit --omit=dev --audit-level=moderate`: no production dependency
   vulnerabilities reported.
 
@@ -281,12 +346,16 @@ Before any deployment:
   migrations, grants, and RLS policies in the target Supabase project.
 - Ensure all externally reachable routes use HTTPS and production secrets are
   not exposed in client bundles or logs.
+- If enabling the PayPal demonstration, configure only a PayPal Sandbox
+  application and verify that `PAYPAL_BASE_URL` is exactly the Sandbox host.
+  Keep the client secret and signing secret server-only. Do not configure live
+  PayPal credentials or present the demonstration as linked to a purchase.
 - Run the test, type-check, lint, build, and dependency-audit commands against
   the release candidate.
 - Test authorized and unauthorized flows using a dedicated non-production
   account and synthetic data.
-- Confirm there is no payment provider or automatic payment execution enabled
-  before describing the product to users.
+- Confirm the PayPal Sandbox demo remains isolated from purchase requests and
+  that no live PayPal credentials or production payment path are enabled.
 - Monitor deployment logs and define an incident-response and rollback plan.
 
 No deployment was performed as part of this project work. Production Supabase
@@ -310,8 +379,14 @@ configuration and live customer behavior remain unverified.
   configuration were not verified.
 - The full npm audit reports 7 moderate development-dependency findings; the
   production-only audit reports zero.
-- Payment initiation, settlement, refunds, and chargebacks are outside project
-  scope.
+- The standalone PayPal Sandbox demonstration is not a production payment
+  integration and is not connected to purchase requests. It uses a fixed
+  USD 1.00 amount and creates no application payment records.
+- No durable payment history or application-side replay/reconciliation record
+  exists. A reload loses the short-lived token; a flow may need to be restarted.
+- No Gemini assistant or other AI service is implemented.
+- Real-payment processing, settlement, refunds, and chargebacks are outside
+  project scope.
 
 ## 19. Future Work and Responsible AI Readiness
 
@@ -336,7 +411,7 @@ These are recommendations, not implemented features.
 
 ## 20. Hackathon Demonstration Outline
 
-Suggested five-minute walkthrough:
+Suggested six-to-seven-minute walkthrough:
 
 1. **Problem and boundaries (30 seconds):** explain that this is a review
    assistant prototype, not a live payment-security product.
@@ -349,9 +424,16 @@ Suggested five-minute walkthrough:
    reviewer.
 5. **Security and tests (45 seconds):** show the isolated tests, protected
    review path, and the difference between evaluation and payment execution.
-6. **Limitations and roadmap (40 seconds):** disclose no ML, no live merchant
-   verification, no payment execution, and the need for deployment-specific
-   Supabase verification.
+6. **Optional PayPal Sandbox (40 seconds):** if Sandbox credentials and buyer
+   account are configured and the flow has been manually verified, show the
+   separate fixed USD 1.00 checkout and server-confirmed Sandbox capture.
+   Clearly state that it is not tied to a purchase, stores no payment record,
+   and is not a real payment. Otherwise, describe the flow without claiming a
+   live test.
+7. **Limitations and roadmap (30 seconds):** disclose no AI model, no live
+   merchant verification, no purchase-linked or real payment processing, the
+   unresolved reviewer-identity limitation, and incomplete live Supabase
+   validation.
 
 Do not show real customer data, secret values, or production credentials during
 the presentation.
@@ -373,8 +455,9 @@ No. It means the request can proceed to explicit human review. The purchase
 remains unapproved until an authorized reviewer acts.
 
 **Does approving a request execute payment?**  
-No. There is no payment processor integration or payment execution path in this
-prototype.
+No. Approval only records the human decision. A separate PayPal Sandbox demo
+can create and capture a fixed USD 1.00 Sandbox order, but it is not linked to
+any purchase request and does not change purchase status.
 
 **Are the tests against a live Supabase database?**  
 No. Protected API and workflow tests use isolated in-memory mocks. Deployed

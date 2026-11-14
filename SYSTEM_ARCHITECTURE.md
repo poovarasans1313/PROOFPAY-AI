@@ -5,7 +5,8 @@
 PROOFPAY AI is a Next.js web application for evaluating purchase requests and
 presenting them for human review. Its security engine is a deterministic
 TypeScript ruleset. It is not a machine-learning system, a real-world merchant
-verification service, or a payment processor.
+verification service, or a production payment processor. A separate PayPal
+Sandbox demonstration is intentionally isolated from purchase requests.
 
 ## Components
 
@@ -16,6 +17,9 @@ verification service, or a payment processor.
 - The dashboard is a server-rendered page. Its interactive client component
   presents request summaries, the evaluation form, and a separate Approval
   Workspace.
+- The Settings page requires a server-verified admin session. It displays the
+  signed-in account and safe environment-configuration status only; it does not
+  expose secret values or provide unsupported configuration controls.
 - The browser uses the Supabase publishable key. It does not import the
   service-role helper.
 
@@ -55,6 +59,27 @@ Current demo behavior:
 
 The evaluation route inserts the request details, computed risk fields,
 reasons, next action, and pending/blocked status into `purchase_requests`.
+
+### Standalone PayPal Sandbox demonstration
+
+The authenticated `/paypal-demo` page is a separate fixed USD 1.00
+demonstration. The order-creation API sets the amount and currency server-side
+and talks only to `https://api-m.sandbox.paypal.com`. PayPal OAuth credentials
+are used only by server routes. The browser loads PayPal's hosted checkout SDK
+with the public Sandbox client ID so a Sandbox buyer can approve the order.
+
+After approval, the capture API checks a short-lived HMAC-signed token bound to
+the current admin and exact order ID. It retrieves the order from PayPal,
+verifies approval and amount/currency, captures server-side, and checks
+PayPal's completed capture response before returning success. Stable PayPal
+request IDs and a fresh PayPal order lookup support retry handling.
+
+The token remains only in the current page's memory. Its user binding is keyed
+and derived, not a raw user ID. The app does not store orders, capture
+references, or token-use state in Supabase or another database. Consequently,
+a page reload loses the token, and the app cannot provide durable payment
+history, one-time-use tracking, or full reconciliation. This demo does not use
+purchase-request data, update approval state, or mark any purchase paid.
 
 ### Review API and database operation
 
@@ -107,7 +132,8 @@ database security.
    The RPC updates review fields and records an approval event.
 8. The dashboard refreshes to show the decision and review metadata.
 
-There is **no payment execution step** in this flow.
+There is **no payment execution step** in this purchase-request flow. The
+separate PayPal Sandbox demonstration above does not connect to or alter it.
 
 ## Human approval workflow
 
@@ -146,6 +172,12 @@ flowchart LR
     AdminClient[Server-only Supabase admin client<br/>SUPABASE_SECRET_KEY]
     Requests[(purchase_requests)]
     Events[(approval_events)]
+    DemoUI[Separate PayPal Sandbox page<br/>fixed USD 1.00]
+    OrderAPI[POST /api/paypal-demo/orders]
+    CaptureAPI[POST /api/paypal-demo/orders/orderId/capture]
+    Token[Short-lived HMAC token<br/>user + order + expiry + purpose]
+    PayPalSDK[PayPal hosted checkout SDK]
+    PayPalSandbox[PayPal Sandbox APIs<br/>OAuth, create, retrieve, capture]
 
     Admin --> Browser
     Browser --> BrowserClient
@@ -165,7 +197,18 @@ flowchart LR
     AdminClient -->|review event insert via RPC| Events
     DashboardPage -->|server-side dashboard reads| AdminClient
     DashboardPage -->|rendered dashboard data| Browser
-    Browser -.->|no payment integration or execution| NoPayment[No payment processor]
+    Browser --> DemoUI
+    DemoUI -->|create fixed amount order| OrderAPI
+    OrderAPI -->|authenticate admin| ServerSession
+    OrderAPI -->|OAuth + create order| PayPalSandbox
+    DemoUI -->|buyer approval| PayPalSDK
+    PayPalSDK -->|approved order ID| DemoUI
+    OrderAPI -->|return signed token| Token
+    DemoUI -->|order ID + token| CaptureAPI
+    CaptureAPI -->|verify user, signature, expiry, order binding| Token
+    CaptureAPI -->|authenticate admin| ServerSession
+    CaptureAPI -->|fetch, validate, capture, verify| PayPalSandbox
+    PayPalSandbox -->|Sandbox status and capture response| CaptureAPI
 ```
 
 The service-role RPC actor-ID relationship shown above is enforced by the
@@ -175,8 +218,10 @@ remain incomplete.
 
 ## Testing scope and deployment cautions
 
-The documented 99 automated tests use isolated mocks for API and workflow
-behavior. They do not prove live Supabase grants, RLS, RPC identity, or
-production configuration. Use synthetic data in a separate staging project
-for integration verification. No staging project is currently available, so
-live database validation remains blocked.
+Automated API and workflow tests use isolated mocks. They do not prove live
+Supabase grants, RLS, RPC identity, or production configuration. PayPal API
+and token tests also use mocks and do not prove that a real Sandbox checkout
+succeeds. The PayPal demo uses the existing session only for authentication
+and makes no purchase-table queries or writes. A separate staging project has
+been reported, but it was not accessed for this implementation and live
+Supabase validation remains incomplete.

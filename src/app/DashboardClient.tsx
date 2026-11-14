@@ -47,6 +47,12 @@ type ReviewFeedback = {
   message: string;
 };
 
+type EvaluationApiResult = SecurityResult & {
+  requestId: string;
+  status: "PENDING_APPROVAL" | "PENDING_REVIEW" | "BLOCKED";
+  saved: true;
+};
+
 function formatAmount(amount: number | string, currency: string): string {
   const numericAmount = typeof amount === "number" ? amount : Number(amount);
 
@@ -98,25 +104,42 @@ function getStatusStyle(status: string): string {
   }
 }
 
-function isSecurityResult(value: unknown): value is SecurityResult {
+function isEvaluationApiResult(value: unknown): value is EvaluationApiResult {
   if (typeof value !== "object" || value === null) {
     return false;
   }
 
   const result = value as Record<string, unknown>;
 
+  if (
+    (result.decision !== "READY_FOR_HUMAN_APPROVAL" &&
+      result.decision !== "REVIEW_REQUIRED" &&
+      result.decision !== "BLOCKED") ||
+    (result.riskLevel !== "LOW" &&
+      result.riskLevel !== "MEDIUM" &&
+      result.riskLevel !== "HIGH") ||
+    typeof result.riskScore !== "number" ||
+    !Number.isFinite(result.riskScore) ||
+    result.riskScore < 0 ||
+    result.riskScore > 100 ||
+    !Array.isArray(result.reasons) ||
+    result.reasons.length === 0 ||
+    !result.reasons.every((reason) => typeof reason === "string") ||
+    typeof result.nextAction !== "string" ||
+    !result.nextAction.trim() ||
+    typeof result.requestId !== "string" ||
+    !result.requestId ||
+    result.saved !== true
+  ) {
+    return false;
+  }
+
   return (
-    (result.decision === "READY_FOR_HUMAN_APPROVAL" ||
-      result.decision === "REVIEW_REQUIRED" ||
-      result.decision === "BLOCKED") &&
-    (result.riskLevel === "LOW" ||
-      result.riskLevel === "MEDIUM" ||
-      result.riskLevel === "HIGH") &&
-    typeof result.riskScore === "number" &&
-    Number.isFinite(result.riskScore) &&
-    Array.isArray(result.reasons) &&
-    result.reasons.every((reason) => typeof reason === "string") &&
-    typeof result.nextAction === "string"
+    (result.decision === "READY_FOR_HUMAN_APPROVAL" &&
+      result.status === "PENDING_APPROVAL") ||
+    (result.decision === "REVIEW_REQUIRED" &&
+      result.status === "PENDING_REVIEW") ||
+    (result.decision === "BLOCKED" && result.status === "BLOCKED")
   );
 }
 
@@ -137,7 +160,7 @@ export default function DashboardClient({
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("USD");
 
-  const [result, setResult] = useState<SecurityResult | null>(null);
+  const [result, setResult] = useState<EvaluationApiResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -238,19 +261,27 @@ export default function DashboardClient({
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/evaluate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          merchant,
-          merchantDomain,
-          product,
-          amount: Number(amount),
-          currency,
-        }),
-      });
+      let response: Response;
+
+      try {
+        response = await fetch("/api/evaluate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            merchant,
+            merchantDomain,
+            product,
+            amount: Number(amount),
+            currency,
+          }),
+        });
+      } catch {
+        throw new Error(
+          "Unable to connect to the security API. Check your connection and try again."
+        );
+      }
 
       let payload: unknown;
 
@@ -272,7 +303,7 @@ export default function DashboardClient({
         throw new Error(message);
       }
 
-      if (!isSecurityResult(payload)) {
+      if (!isEvaluationApiResult(payload)) {
         throw new Error("The security API returned an invalid response.");
       }
 
@@ -281,8 +312,8 @@ export default function DashboardClient({
     } catch (error) {
       setError(
         error instanceof Error
-          ? `Unable to reach the security API: ${error.message}`
-          : "Unable to reach the security API. Please try again."
+          ? error.message
+          : "The security API request could not be completed."
       );
     } finally {
       setIsLoading(false);
@@ -299,9 +330,11 @@ export default function DashboardClient({
   const navItems = [
     { icon: "▦", label: "Overview", href: "#overview" },
     { icon: "⇄", label: "Transactions", href: "#transactions" },
-    { icon: "◈", label: "AI Agent", href: "#ai-agent" },
+    { icon: "◈", label: "Security Agent", href: "#ai-agent" },
     { icon: "⬡", label: "Security Center", href: "#security-center" },
     { icon: "◷", label: "Approvals", href: "#approvals" },
+    { icon: "⚙", label: "Settings", href: "/settings" },
+    { icon: "◎", label: "PayPal Demo", href: "/paypal-demo" },
   ];
 
   return (
@@ -313,7 +346,7 @@ export default function DashboardClient({
               PROOF<span className="text-cyan-400">PAY</span>
             </h1>
             <p className="mt-1 text-xs tracking-[3px] text-slate-500">
-              AI TRUST ENGINE
+              RULE-BASED SECURITY ENGINE
             </p>
           </div>
 
@@ -362,17 +395,6 @@ export default function DashboardClient({
               )
             ))}
 
-            <div
-              aria-disabled="true"
-              title="Settings are not available yet"
-              className="flex cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-sm text-slate-600"
-            >
-              <span aria-hidden="true">⚙</span>
-              Settings
-              <span className="ml-auto text-[10px] uppercase tracking-wide">
-                Soon
-              </span>
-            </div>
           </nav>
 
           <div className="mt-auto rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4">
@@ -921,6 +943,13 @@ export default function DashboardClient({
                       required
                       value={field.value}
                       onChange={(event) => field.setValue(event.target.value)}
+                      maxLength={
+                        field.id === "merchant"
+                          ? 120
+                          : field.id === "merchantDomain"
+                            ? 253
+                            : 200
+                      }
                       placeholder={field.placeholder}
                       className="w-full rounded-xl border border-white/10 bg-[#0c101a] px-4 py-3 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
                     />
@@ -959,6 +988,9 @@ export default function DashboardClient({
                     value={currency}
                     onChange={(event) => setCurrency(event.target.value)}
                     placeholder="USD"
+                    maxLength={3}
+                    pattern="[A-Za-z]{3}"
+                    title="Enter a three-letter currency code, such as USD."
                     className="w-full rounded-xl border border-white/10 bg-[#0c101a] px-4 py-3 text-white outline-none placeholder:text-slate-600 focus:border-cyan-400/50"
                   />
                 </label>
@@ -997,7 +1029,24 @@ export default function DashboardClient({
                     </span>
                   </div>
                   <p className="mt-3 text-2xl font-bold">
-                    Risk score: {result.riskScore}
+                    Risk score: {result.riskScore}/100
+                  </p>
+                  <div
+                    className="mt-2 h-2 overflow-hidden rounded-full bg-black/20"
+                    role="meter"
+                    aria-label="Risk score"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={result.riskScore}
+                  >
+                    <div
+                      className="h-full rounded-full bg-current"
+                      style={{ width: `${result.riskScore}%` }}
+                    />
+                  </div>
+                  <p className="mt-3 text-xs opacity-80">
+                    Saved as {result.status.replaceAll("_", " ")} · Request{" "}
+                    {result.requestId}
                   </p>
                   <div className="mt-4">
                     <p className="text-sm font-semibold">Reasons</p>

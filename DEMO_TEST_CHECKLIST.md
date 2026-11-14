@@ -8,6 +8,14 @@
       password, session token, or credentials during the presentation.
 - [ ] Confirm the environment is configured without displaying or copying
       secret values.
+- [ ] If demonstrating PayPal, confirm only a PayPal Sandbox application is
+      configured, the public Sandbox client ID is available, and a Sandbox
+      buyer account can approve the fixed USD 1.00 order. Never use live
+      PayPal credentials.
+- [ ] Do not edit `.env.local` as part of the demo setup. Configure any
+      required values yourself through an approved secure method.
+- [ ] Confirm the PayPal capture API uses the exact Sandbox host and that the
+      demo page clearly says it is standalone and not connected to purchases.
 - [ ] Confirm the canonical application origin is configured for the demo URL.
 - [ ] Confirm the database migration and existing tables required by this
       project are present in the demo project. Do not run migrations as part of
@@ -93,6 +101,23 @@
 - [ ] If an action fails, do not claim success or repeat against an unknown
       environment.
 
+## Standalone PayPal Sandbox demonstration
+
+- [ ] Explain that the demo always uses a server-set USD 1.00 amount and is
+      separate from purchase evaluation and the Approval Workspace.
+- [ ] Open PayPal Demo while signed in as an authorized admin.
+- [ ] Create one Sandbox order and approve it using only a PayPal Sandbox buyer
+      account.
+- [ ] Confirm the server reports success only after retrieving the order,
+      verifying approval and fixed amount/currency, and validating the
+      completed capture response.
+- [ ] Confirm the page shows a Sandbox capture reference and does not show or
+      change any purchase request or paid status.
+- [ ] Do not claim a real payment was made. Mocked tests are not a live PayPal
+      Sandbox test.
+- [ ] Explain that no order/capture record is saved and a page reload loses the
+      short-lived verification token.
+
 ## Review metadata / audit history
 
 - [ ] Navigate to Recent Transactions on the dashboard.
@@ -115,6 +140,10 @@
       succeeded. Refresh once and verify the current status.
 - [ ] If the configured target is not clearly the approved demo/staging
       project, stop before submitting or reviewing anything.
+- [ ] If the PayPal Sandbox response is uncertain, use the page's retry
+      verification action for the same order before starting another checkout.
+- [ ] If the Sandbox token expires or page state is lost, restart the
+      demonstration; do not claim capture success without server verification.
 - [ ] Do not inspect environment files, browser tokens, logs containing
       credentials, or production data while recovering.
 - [ ] Switch to sanitized screenshots or isolated test evidence if the live
@@ -128,7 +157,10 @@
       learning.
 - [ ] The merchant mapping is not real-world merchant verification.
 - [ ] Low risk never automatically approves a request.
-- [ ] Approval/rejection records a human decision; no payment is executed.
+- [ ] Approval/rejection records a human decision and does not execute payment.
+- [ ] The separate USD 1.00 PayPal Sandbox demo is not linked to any purchase
+      and does not store payment records.
+- [ ] No Gemini assistant or AI model is implemented in this phase.
 - [ ] The review API passes the authenticated admin ID to a service-role-only
       RPC, but the current RPC does not independently verify that ID. A trusted
       service-role caller could supply another actor ID.

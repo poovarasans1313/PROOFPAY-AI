@@ -1,6 +1,6 @@
 # PROOFPAY AI — Hackathon Demo Script
 
-**Target length:** about 6 minutes  
+**Target length:** about 6–7 minutes
 **Audience:** hackathon judges and technical reviewers
 
 ## Before presenting
@@ -10,6 +10,9 @@
 - Confirm that the demo account is an authorized admin and that the dashboard
   has enough synthetic pending requests to demonstrate both approval and
   rejection.
+- If showing the separate PayPal demonstration, confirm that only PayPal
+  Sandbox credentials and a Sandbox buyer account are configured. Never use
+  live PayPal credentials.
 - Never display credentials, secret values, real user information, or
   production data.
 - If no safe demo/staging project is available, present the workflow using
@@ -23,7 +26,8 @@
 > requests and routing them to a human reviewer. Despite the project name, the
 > current risk engine is deterministic software—not machine learning. It uses
 > explicit demo rules, and it does not verify real merchant ownership or
-> process payments.
+> make real payments. A separate fixed-amount PayPal Sandbox demonstration is
+> isolated from purchase requests.
 
 **Show:** title and the authenticated dashboard, using synthetic data.
 
@@ -51,7 +55,7 @@
 > “Ready for human approval,” but its stored status is still
 > `PENDING_APPROVAL`. A mismatch or an amount above $500 requires review.
 > Nothing is automatically approved, and an approval is only a recorded human
-> decision—it does not initiate a payment.
+> decision—it does not initiate or authorize a payment.
 
 **Show:** Test Purchase Security form and explain that the result includes a
 decision, score, level, reasons, and next action.
@@ -112,19 +116,37 @@ the dashboard refreshes.
 > database function does not independently bind that supplied ID to the
 > database caller. The route protects browser requests, but any trusted
 > service-role caller could supply a different actor ID. Database-side
-> hardening and live Supabase security validation are incomplete because a
-> separate staging project is not available.
+> hardening and live Supabase security validation remain incomplete. A staging
+> project has been reported, but it was not accessed or validated for this demo.
 
 **Show:** optionally show the test command/results from the repository. Do not
 show environment files or secrets.
 
-## 5:40–6:00 — Closing
+## 5:40–6:25 — Optional standalone PayPal Sandbox demonstration
+
+> This is a separate PayPal Sandbox flow for a fixed USD 1.00 order. It does
+> not use a purchase request, change an approval decision, or save a payment
+> record in PROOFPAY. The buyer approves in PayPal Sandbox; the server then
+> retrieves and checks the order, captures it, and verifies PayPal's completed
+> capture response. This is not a real payment.
+
+**Show:** only if the Sandbox flow has been manually verified with a Sandbox
+buyer. Create the order, approve it with the test account, and show the
+server-confirmed completion. Do not display credentials. If the flow has not
+been verified or is unavailable, skip the live checkout and state that
+automated tests use mocks.
+
+The app keeps the short-lived verification token only in page memory and
+stores no order or capture history. A reload can require restarting the demo.
+
+## 6:25–6:50 — Closing
 
 > PROOFPAY AI demonstrates a transparent, bounded review workflow: rules
-> explain why a request is flagged, and a human makes the decision. It is not a
-> live fraud detector or payment system. Our next responsible step is to
-> validate and harden the database workflow in a separate staging project
-> before considering production use. Thank you.
+> explain why a request is flagged, and a human makes the decision. We also
+> demonstrate a separate Sandbox-only checkout; it is not connected to a
+> purchase or real payment. The project is not a live fraud detector or
+> production payment system. Database-side reviewer identity hardening and
+> live Supabase validation remain future work. Thank you.
 
 ## If the live demo fails
 

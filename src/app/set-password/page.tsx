@@ -13,15 +13,35 @@ export default function SetPasswordPage() {
   const [hasSession, setHasSession] = useState(false);
 
   useEffect(() => {
-    async function checkSession() {
-      const supabase = createClient();
-      const { data, error } = await supabase.auth.getUser();
+    let active = true;
 
-      setHasSession(!error && !!data.user);
-      setChecking(false);
+    async function checkSession() {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase.auth.getUser();
+
+        if (active) {
+          setHasSession(!error && !!data.user);
+        }
+      } catch {
+        if (active) {
+          setHasSession(false);
+          setMessage(
+            "Unable to verify your recovery session. Check your connection and request a new link if needed."
+          );
+        }
+      } finally {
+        if (active) {
+          setChecking(false);
+        }
+      }
     }
 
-    checkSession();
+    void checkSession();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -45,7 +65,9 @@ export default function SetPasswordPage() {
       const { error } = await supabase.auth.updateUser({ password });
 
       if (error) {
-        setMessage(error.message);
+        setMessage(
+          "Unable to update the password. Check your project password requirements and try again."
+        );
         return;
       }
 

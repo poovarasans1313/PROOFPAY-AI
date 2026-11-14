@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { getAdminUser } from "@/lib/auth/require-admin";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import DashboardClient, { type PurchaseRecord } from "./DashboardClient";
@@ -31,6 +32,8 @@ export default function Home() {
 }
 
 async function AdminDashboard() {
+  await connection();
+
   const user = await getAdminUser();
 
   if (!user) {

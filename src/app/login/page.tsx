@@ -55,7 +55,7 @@ export default function LoginPage() {
             PROOF<span className="text-cyan-400">PAY</span>
           </h1>
           <p className="mt-2 text-xs tracking-[4px] text-slate-500">
-            AI TRUST ENGINE
+            RULE-BASED SECURITY ENGINE
           </p>
         </div>
 

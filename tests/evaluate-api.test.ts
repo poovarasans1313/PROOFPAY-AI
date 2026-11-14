@@ -141,6 +141,54 @@ test("Incorrect origin is rejected without inserting a purchase", async () => {
   assert.equal(insertedPurchases.length, 0);
 });
 
+test("Missing APP_ORIGIN configuration fails closed", async () => {
+  const configuredOrigin = process.env.APP_ORIGIN;
+  delete process.env.APP_ORIGIN;
+
+  try {
+    const response = await POST(purchaseRequest());
+    const body = await responseBody(response);
+
+    assert.equal(response.status, 500);
+    assert.equal(body.error, "Server origin is not configured correctly.");
+    assert.equal(insertedPurchases.length, 0);
+  } finally {
+    if (configuredOrigin === undefined) {
+      delete process.env.APP_ORIGIN;
+    } else {
+      process.env.APP_ORIGIN = configuredOrigin;
+    }
+  }
+});
+
+test("Production rejects a localhost APP_ORIGIN", async () => {
+  const configuredOrigin = process.env.APP_ORIGIN;
+  const nodeEnvironment = process.env.NODE_ENV;
+  process.env.APP_ORIGIN = "http://localhost:3000";
+  Reflect.set(process.env, "NODE_ENV", "production");
+
+  try {
+    const response = await POST(purchaseRequest());
+    const body = await responseBody(response);
+
+    assert.equal(response.status, 500);
+    assert.equal(body.error, "Server origin is not configured correctly.");
+    assert.equal(insertedPurchases.length, 0);
+  } finally {
+    if (configuredOrigin === undefined) {
+      delete process.env.APP_ORIGIN;
+    } else {
+      process.env.APP_ORIGIN = configuredOrigin;
+    }
+
+    if (nodeEnvironment === undefined) {
+      Reflect.deleteProperty(process.env, "NODE_ENV");
+    } else {
+      Reflect.set(process.env, "NODE_ENV", nodeEnvironment);
+    }
+  }
+});
+
 test("Malformed JSON is rejected without inserting a purchase", async () => {
   const response = await POST(request("{"));
 
@@ -306,6 +354,35 @@ test("Malformed three-letter currency code is rejected", async () => {
   assert.equal(insertedPurchases.length, 0);
 });
 
+for (const merchantDomain of [
+  "amazon",
+  "not a domain",
+  "https://amazon.com/path",
+  "example..com",
+  "-invalid.example",
+  "invalid-.example",
+]) {
+  test(`Invalid merchant hostname ${JSON.stringify(merchantDomain)} is rejected`, async () => {
+    const response = await POST(
+      purchaseRequest({ ...validPurchase, merchantDomain })
+    );
+
+    assert.equal(response.status, 400);
+    assert.equal(insertedPurchases.length, 0);
+  });
+}
+
+for (const field of ["merchant", "product"] as const) {
+  test(`Control characters in ${field} are rejected`, async () => {
+    const response = await POST(
+      purchaseRequest({ ...validPurchase, [field]: "Test\u0000value" })
+    );
+
+    assert.equal(response.status, 400);
+    assert.equal(insertedPurchases.length, 0);
+  });
+}
+
 test("Oversized declared content length is rejected", async () => {
   const oversizedDeclaredBody = new Request(
     "https://proofpay.test/api/evaluate",
@@ -376,6 +453,17 @@ test("Mismatched merchant name and domain require review", async () => {
   assert.equal(body.decision, "REVIEW_REQUIRED");
   assert.equal(body.status, "PENDING_REVIEW");
   assert.equal(insertedPurchases[0].status, "PENDING_REVIEW");
+});
+
+test("Valid hostname with a trailing dot is accepted", async () => {
+  const response = await POST(
+    purchaseRequest({ ...validPurchase, merchantDomain: "amazon.com." })
+  );
+  const body = await responseBody(response);
+
+  assert.equal(response.status, 200);
+  assert.equal(body.decision, "READY_FOR_HUMAN_APPROVAL");
+  assert.equal(insertedPurchases.length, 1);
 });
 
 test("Unsupported currency requires review", async () => {
